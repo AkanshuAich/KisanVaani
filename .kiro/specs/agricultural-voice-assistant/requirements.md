@@ -109,7 +109,7 @@ KisanVaani is a voice-first agricultural assistant system that enables farmers t
 
 The following features are explicitly excluded from the MVP and will be considered for future phases:
 
-- Support for 10+ languages (MVP limited to 1-2 languages)
+- MVP limited to 1-2 languages
 - Deep government API integrations for real-time data synchronization
 - Market price and weather API integration
 - Large-scale concurrency support (10,000+ concurrent users)
