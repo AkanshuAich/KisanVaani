@@ -2,11 +2,19 @@
 
 ## Overview
 
-KisanVaani is a voice-first agricultural assistant that enables farmers to access government subsidies, crop guidance, and loan information through natural voice interactions. The system architecture follows a microservices pattern with three core services: Voice Service (handles STT/TTS), RAG Service (retrieves and generates responses), and Notification Service (proactive alerts). The design prioritizes simplicity, accessibility, and reliability for farmers with limited technical literacy operating in rural areas with variable network connectivity.
+KisanVaani is a voice-first agricultural assistant that helps farmers access government subsidies, crop guidance, and loan information through simple voice interactions.
+
+The MVP focuses on:
+- Voice input → RAG retrieval → Voice response
+- Basic farmer personalization via phone number
+- Simple outbound scheme notifications
+- Support for up to 1,000 farmers
+
+The system prioritizes simplicity, reliability, and cost efficiency.
 
 The system supports two interaction modes:
 1. **Phone-based access**: Farmers call a toll-free number and interact via IVR
-2. **Mobile app access**: Lightweight app with voice-first interface
+2. **Mobile app access**: Lightweight React-based app with voice-first interface
 
 ## Architecture
 
@@ -14,113 +22,132 @@ The system supports two interaction modes:
 
 ```mermaid
 graph TB
-    subgraph "User Interface Layer"
-        Phone[Phone Call via IVR]
-        MobileApp[Mobile App]
+    subgraph "User Interface"
+        Phone[Farmer - Phone Call]
+        MobileApp[Farmer - React Web App]
     end
     
-    subgraph "API Gateway"
-        Gateway[API Gateway / Load Balancer]
+    subgraph "Telephony & Voice"
+        Twilio[Twilio Voice/IVR]
+        Whisper[OpenAI Whisper STT]
+        Polly[Amazon Polly TTS]
     end
     
-    subgraph "Core Services"
-        VoiceService[Voice Service]
-        RAGService[RAG Service]
-        NotificationService[Notification Service]
-        ProfileService[Profile Service]
+    subgraph "API Layer"
+        APIGateway[AWS API Gateway]
+    end
+    
+    subgraph "Backend Services"
+        Backend[FastAPI Backend]
+        RAG[RAG Pipeline]
+        Notification[Notification Service]
+    end
+    
+    subgraph "AI & LLM"
+        OpenAI[OpenAI GPT-4]
+        Embeddings[Embedding Model]
     end
     
     subgraph "Data Layer"
-        VectorDB[(Vector Database)]
-        ProfileDB[(Profile Database)]
-        ConversationCache[(Conversation Cache)]
+        DynamoDB[(DynamoDB Vector Search)]
+        MongoDB[(MongoDB)]
+        S3[(S3 Document Storage)]
+        Redis[(Redis Cache)]
     end
     
-    subgraph "External Services"
-        STT[Speech-to-Text API]
-        TTS[Text-to-Speech API]
-        Telephony[Telephony Provider]
-        LLM[LLM API]
+    subgraph "Monitoring"
+        CloudWatch[AWS CloudWatch]
     end
     
-    Phone --> Telephony
-    Telephony --> Gateway
-    MobileApp --> Gateway
+    Phone --> Twilio
+    MobileApp --> APIGateway
+    Twilio --> APIGateway
     
-    Gateway --> VoiceService
-    Gateway --> RAGService
-    Gateway --> NotificationService
-    Gateway --> ProfileService
+    APIGateway --> Backend
     
-    VoiceService --> STT
-    VoiceService --> TTS
-    VoiceService --> ConversationCache
+    Backend --> Whisper
+    Backend --> Polly
+    Backend --> RAG
+    Backend --> Notification
+    Backend --> MongoDB
+    Backend --> Redis
+    Backend --> CloudWatch
     
-    RAGService --> VectorDB
-    RAGService --> LLM
-    RAGService --> ConversationCache
+    RAG --> Embeddings
+    RAG --> DynamoDB
+    RAG --> OpenAI
+    RAG --> S3
     
-    NotificationService --> Telephony
-    NotificationService --> ProfileDB
-    
-    ProfileService --> ProfileDB
+    Notification --> Twilio
+    Notification --> MongoDB
 ```
 
 ### Technology Stack
 
-**Voice Processing:**
-- Speech-to-Text: Google Cloud Speech-to-Text API (supports Hindi and other Indian languages)
-- Text-to-Speech: Google Cloud Text-to-Speech API (natural voices for regional languages)
-- Alternative: Azure Speech Services for redundancy
-
-**RAG Pipeline:**
-- Embedding Model: `multilingual-e5-large` or `paraphrase-multilingual-mpnet-base-v2`
-- Vector Database: Qdrant (open-source, self-hosted for cost efficiency)
-- LLM: OpenAI GPT-4 or Anthropic Claude for response generation
-- Document Processing: LangChain for chunking and embedding pipeline
-
-**Telephony:**
-- Primary: Exotel (India-specific, better local connectivity)
-- Alternative: Twilio for IVR and voice call management
-- WebRTC for mobile app voice
+**Frontend:**
+- React web application for mobile access
+- Voice recording via Web Audio API
+- Responsive design for mobile devices
 
 **Backend:**
-- Language: Python (FastAPI for services)
-- Message Queue: Redis for conversation cache, RabbitMQ for notification queue
-- Database: PostgreSQL for farmer profiles and metadata
+- FastAPI (Python) for REST APIs
+- JWT for authentication
+- Async request handling
 
-**Infrastructure:**
-- Containerization: Docker
-- Orchestration: Kubernetes (for scaling) or Docker Compose (for MVP)
-- Cloud: AWS or Google Cloud Platform
-- CDN: CloudFront for mobile app assets
+**API Layer:**
+- AWS API Gateway for request routing and rate limiting
+- REST endpoints for voice, query, and profile operations
+
+**Voice Processing:**
+- Speech-to-Text: OpenAI Whisper API
+- Text-to-Speech: Amazon Polly
+- Telephony: Twilio for voice calls and IVR
+
+**RAG Pipeline:**
+- Embedding Model: OpenAI text-embedding-3-small or multilingual-e5-large
+- Vector Database: Amazon DynamoDB with vector search capability
+- LLM: OpenAI GPT-4 for response generation
+- Document Processing: LangChain for chunking pipeline
+
+**Storage:**
+- Document Storage: Amazon S3 for PDFs and source documents
+- Database: MongoDB for farmer profiles and metadata
+- Cache: Redis for conversation context (30-minute TTL)
+
+**Monitoring & Logging:**
+- AWS CloudWatch for logs, metrics, and alerts
+- Custom dashboards for query volume, response times, error rates
+
+**Notification:**
+- Twilio for outbound voice calls
+- SMS fallback capability
 
 ## Components and Interfaces
 
 ### 1. Voice Service
 
-**Responsibility:** Handles all voice input/output processing, including speech-to-text conversion, text-to-speech synthesis, and conversation state management.
+**Responsibility:** Handles all voice input/output processing, including speech-to-text conversion via OpenAI Whisper, text-to-speech synthesis via Amazon Polly, and conversation state management.
 
 **Interfaces:**
 
 ```python
 class VoiceService:
-    def process_speech_input(
+    def transcribe_speech(
         self,
         audio_stream: AudioStream,
         language_code: str,
         session_id: str
-    ) -> SpeechToTextResult:
+    ) -> TranscriptionResult:
         """
-        Convert speech audio to text.
+        Convert speech audio to text using OpenAI Whisper.
         
         Args:
-            audio_stream: Raw audio data from phone or app
-            language_code: Language identifier (e.g., 'hi-IN', 'ta-IN')
+            audio_stream: Raw audio data from Twilio or React app
+            language_code: Language identifier (e.g., 'hi', 'ta')
             session_id: Unique session identifier for context
             
         Returns:
-            SpeechToTextResult containing transcribed text and confidence score
+            TranscriptionResult containing transcribed text and confidence
         """
         pass
     
@@ -128,15 +155,15 @@ class VoiceService:
         self,
         text: str,
         language_code: str,
-        voice_profile: str = "default"
+        voice_id: str = "Aditi"  # Amazon Polly Hindi voice
     ) -> AudioStream:
         """
-        Convert text response to speech audio.
+        Convert text response to speech audio using Amazon Polly.
         
         Args:
             text: Response text to convert
             language_code: Target language for synthesis
-            voice_profile: Voice characteristics (male/female, regional accent)
+            voice_id: Polly voice ID (Aditi for Hindi, etc.)
             
         Returns:
             AudioStream containing synthesized speech
@@ -153,7 +180,7 @@ class VoiceService:
         
         Args:
             session_id: Session identifier
-            confidence_score: STT confidence (0.0 to 1.0)
+            confidence_score: Whisper confidence (0.0 to 1.0)
             
         Returns:
             Prompt text asking farmer to repeat
@@ -162,14 +189,15 @@ class VoiceService:
 ```
 
 **Key Design Decisions:**
-- Use streaming STT for faster response (process audio as it arrives)
-- Cache common prompts in TTS to reduce API calls
+- Use OpenAI Whisper API for multilingual STT (supports Hindi, Tamil, and other Indian languages)
+- Use Amazon Polly with Indian voices (Aditi for Hindi, others for regional languages)
 - Set confidence threshold at 0.7 - below this, ask farmer to repeat
-- Support audio formats: WAV, MP3, Opus (for mobile)
+- Support audio formats: WAV, MP3, Opus (for web), PCMU (for Twilio)
+- Cache common Polly responses in S3 to reduce API calls
 
 ### 2. RAG Service
 
-**Responsibility:** Implements the Retrieval-Augmented Generation pipeline to retrieve relevant documents from the knowledge base and generate contextual responses.
+**Responsibility:** Implements the Retrieval-Augmented Generation pipeline using OpenAI embeddings, DynamoDB vector search, and GPT-4 for response generation.
 
 **Interfaces:**
 
@@ -203,10 +231,10 @@ class RAGService:
         filters: Dict[str, Any] = None
     ) -> List[Document]:
         """
-        Retrieve relevant documents from vector database.
+        Retrieve relevant documents from DynamoDB vector search.
         
         Args:
-            query_embedding: Vector representation of query
+            query_embedding: Vector representation of query from OpenAI
             top_k: Number of documents to retrieve
             filters: Metadata filters (e.g., document type, region)
             
@@ -223,11 +251,11 @@ class RAGService:
         language_code: str
     ) -> str:
         """
-        Generate response using LLM with retrieved context.
+        Generate response using OpenAI GPT-4 with retrieved context.
         
         Args:
             query: Original farmer question
-            retrieved_docs: Documents from vector DB
+            retrieved_docs: Documents from DynamoDB
             conversation_context: Recent conversation for coherence
             language_code: Target language
             
@@ -255,11 +283,13 @@ class RAGService:
 ```
 
 **Key Design Decisions:**
+- Use OpenAI text-embedding-3-small for cost-efficient embeddings
+- Store embeddings in DynamoDB with vector search enabled
 - Chunk documents into 512-token segments with 50-token overlap
-- Use hybrid search: vector similarity + keyword matching for better recall
-- Implement re-ranking: retrieve top 10, re-rank to top 3 for LLM context
-- Prompt engineering: Instruct LLM to only use provided documents, admit when unsure
+- Retrieve top 5 documents, pass top 3 to GPT-4 for generation
+- Prompt engineering: Instruct GPT-4 to only use provided documents, admit when unsure
 - Response length: Target 2-3 sentences for voice delivery (30-45 seconds)
+- Use GPT-4 for better multilingual support and accuracy
 
 ### 3. Query Handler
 
@@ -348,7 +378,7 @@ class QueryHandler:
 
 ### 4. Notification Service
 
-**Responsibility:** Manages proactive outbound calls to farmers for alerts about new schemes and deadlines.
+**Responsibility:** Manages proactive outbound calls to farmers via Twilio for alerts about new schemes and deadlines.
 
 **Interfaces:**
 
@@ -378,7 +408,7 @@ class NotificationService:
         criteria: Dict[str, Any]
     ) -> List[FarmerProfile]:
         """
-        Find farmers matching notification criteria.
+        Find farmers matching notification criteria from MongoDB.
         
         Args:
             criteria: Filters (e.g., location='Punjab', crop='wheat')
@@ -395,7 +425,7 @@ class NotificationService:
         preferred_time: Optional[datetime] = None
     ) -> CallSchedule:
         """
-        Schedule outbound voice call to farmer.
+        Schedule outbound voice call via Twilio.
         
         Args:
             farmer_id: Target farmer identifier
@@ -414,10 +444,10 @@ class NotificationService:
         farmer_response: Optional[str] = None
     ) -> None:
         """
-        Process result of outbound call attempt.
+        Process result of Twilio outbound call attempt.
         
         Args:
-            call_id: Call identifier
+            call_id: Twilio call SID
             outcome: Result (answered, no_answer, busy, failed)
             farmer_response: Optional farmer feedback during call
         """
@@ -425,15 +455,16 @@ class NotificationService:
 ```
 
 **Key Design Decisions:**
-- Use message queue (RabbitMQ) for async notification processing
-- Batch notifications: process up to 100 calls per batch
+- Use Twilio Programmable Voice for outbound calls
+- Store notification queue in MongoDB
 - Retry logic: 1 retry if no answer, wait 4 hours between attempts
 - Call timing: avoid early morning (before 8 AM) and late evening (after 8 PM)
-- Rate limiting: max 50 concurrent outbound calls to avoid telephony overload
+- Rate limiting: max 50 concurrent outbound calls to avoid Twilio limits
+- Log all call outcomes to CloudWatch for monitoring
 
 ### 5. Profile Service
 
-**Responsibility:** Manages farmer profiles including phone number, location, crop types, and preferences.
+**Responsibility:** Manages farmer profiles in MongoDB including phone number, location, crop types, and preferences.
 
 **Interfaces:**
 
@@ -444,7 +475,7 @@ class ProfileService:
         farmer_id: str
     ) -> FarmerProfile:
         """
-        Retrieve farmer profile by ID.
+        Retrieve farmer profile by ID from MongoDB.
         
         Args:
             farmer_id: Unique farmer identifier (phone number)
@@ -462,7 +493,7 @@ class ProfileService:
         language_preference: str
     ) -> FarmerProfile:
         """
-        Create new profile or update existing one.
+        Create new profile or update existing one in MongoDB.
         
         Args:
             phone_number: Farmer's phone (unique identifier)
@@ -480,13 +511,28 @@ class ProfileService:
         phone_number: str
     ) -> Optional[FarmerProfile]:
         """
-        Look up farmer by phone number.
+        Look up farmer by phone number in MongoDB.
         
         Args:
-            phone_number: Incoming call phone number
+            phone_number: Incoming call phone number from Twilio
             
         Returns:
             FarmerProfile if exists, None for new farmer
+        """
+        pass
+    
+    def authenticate_request(
+        self,
+        token: str
+    ) -> Optional[FarmerProfile]:
+        """
+        Validate JWT token and return farmer profile.
+        
+        Args:
+            token: JWT token from React app
+            
+        Returns:
+            FarmerProfile if token valid, None otherwise
         """
         pass
 ```
@@ -494,12 +540,14 @@ class ProfileService:
 **Key Design Decisions:**
 - Use phone number as primary identifier (no separate username/password)
 - Store minimal data: phone, location (district level), 1-3 crop types, language
-- No PII beyond phone number for MVP
+- Use JWT for React app authentication
+- MongoDB for flexible schema and easy querying
 - Profile creation: interactive voice flow on first call
+- Index on phone_number for fast lookups
 
 ### 6. Knowledge Base Manager
 
-**Responsibility:** Handles document ingestion, processing, and embedding for the vector database.
+**Responsibility:** Handles document ingestion, processing, and embedding for storage in S3 and DynamoDB vector search.
 
 **Interfaces:**
 
@@ -511,7 +559,7 @@ class KnowledgeBaseManager:
         metadata: Dict[str, Any]
     ) -> IngestionResult:
         """
-        Process and store new document in knowledge base.
+        Process and store new document in S3 and DynamoDB.
         
         Args:
             document: PDF or text document to ingest
@@ -529,7 +577,7 @@ class KnowledgeBaseManager:
         overlap: int = 50
     ) -> List[TextChunk]:
         """
-        Split document into overlapping chunks.
+        Split document into overlapping chunks using LangChain.
         
         Args:
             document_text: Full document text
@@ -546,13 +594,27 @@ class KnowledgeBaseManager:
         text_chunks: List[TextChunk]
     ) -> List[Embedding]:
         """
-        Generate vector embeddings for text chunks.
+        Generate vector embeddings using OpenAI text-embedding-3-small.
         
         Args:
             text_chunks: List of text chunks to embed
             
         Returns:
             List of vector embeddings
+        """
+        pass
+    
+    def store_in_dynamodb(
+        self,
+        chunks: List[TextChunk],
+        embeddings: List[Embedding]
+    ) -> None:
+        """
+        Store chunks and embeddings in DynamoDB with vector search.
+        
+        Args:
+            chunks: Text chunks with metadata
+            embeddings: Corresponding vector embeddings
         """
         pass
     
@@ -575,11 +637,15 @@ class KnowledgeBaseManager:
 ```
 
 **Key Design Decisions:**
-- Support PDF and text document formats
+- Store original PDFs in S3 for reference
 - Extract text using PyPDF2 or pdfplumber
 - Chunk size: 512 tokens (balance context vs. precision)
+- Use LangChain RecursiveCharacterTextSplitter for chunking
+- Generate embeddings with OpenAI text-embedding-3-small (cost-efficient)
+- Store embeddings in DynamoDB with vector search enabled
 - Metadata: document type (scheme, crop_guide, loan_info), region, date, source
 - Batch embedding: process 32 chunks at a time for efficiency
+- Log all ingestion operations to CloudWatch
 
 ## Data Models
 
@@ -793,33 +859,37 @@ A property is a characteristic or behavior that should hold true across all vali
 ### Voice Processing Errors
 
 **STT Failures:**
-- Timeout: If STT API doesn't respond within 10 seconds, return error and ask farmer to try again
+- Timeout: If Whisper API doesn't respond within 10 seconds, return error and ask farmer to try again
 - Low confidence: If confidence < 0.7, prompt farmer to repeat
 - Unsupported language: If language detection fails, default to Hindi and inform farmer
 - Audio quality issues: If audio is corrupted, ask farmer to check connection and retry
 
 **TTS Failures:**
-- API unavailable: Fall back to pre-recorded messages for common responses
+- API unavailable: Fall back to pre-recorded messages stored in S3 for common responses
 - Synthesis timeout: Return text response via SMS as backup (if mobile number available)
+- Polly rate limit: Queue requests and use cached audio when available
 
 ### RAG Pipeline Errors
 
 **Retrieval Failures:**
-- Vector DB unavailable: Return cached popular queries/responses
+- DynamoDB unavailable: Return cached popular queries/responses from Redis
 - No documents found: Provide helpful message: "I don't have information about that. Please call our helpline at [number]"
-- Embedding generation fails: Log error, retry once, then fail gracefully
+- Embedding generation fails: Log error to CloudWatch, retry once, then fail gracefully
+- DynamoDB throttling: Implement exponential backoff, queue requests
 
 **Generation Failures:**
-- LLM API timeout: Use template-based response with retrieved document titles
-- LLM returns empty response: Fall back to document excerpts
+- OpenAI API timeout: Use template-based response with retrieved document titles
+- OpenAI returns empty response: Fall back to document excerpts
 - Response too long: Truncate to 3 sentences and offer to provide more details
+- Rate limit exceeded: Queue request and notify user of delay
 
 ### Telephony Errors
 
 **Call Failures:**
-- Number unreachable: Mark for retry, update farmer profile status
-- Call dropped mid-conversation: Store conversation state, resume if farmer calls back within 5 minutes
-- IVR system overload: Queue calls and provide estimated wait time
+- Number unreachable: Mark for retry in MongoDB, update farmer profile status
+- Call dropped mid-conversation: Store conversation state in Redis, resume if farmer calls back within 5 minutes
+- Twilio system overload: Queue calls in MongoDB and provide estimated wait time
+- IVR timeout: If farmer silent for 30 seconds, prompt then disconnect gracefully
 
 ### Data Errors
 
@@ -829,21 +899,24 @@ A property is a characteristic or behavior that should hold true across all vali
 - Profile lookup fails: Create temporary session, prompt for registration
 
 **Document Ingestion Errors:**
-- PDF parsing fails: Log error, notify admin, skip document
+- PDF parsing fails: Log error to CloudWatch, notify admin, skip document
 - Embedding generation fails: Retry with smaller chunks
-- Duplicate document: Check hash, skip if identical, update if different
+- Duplicate document: Check hash in S3, skip if identical, update if different
+- S3 upload fails: Retry with exponential backoff, log to CloudWatch
 
 ### Network and Infrastructure Errors
 
 **Timeout Handling:**
-- Set timeouts: STT (10s), TTS (5s), Vector DB (3s), LLM (15s)
+- Set timeouts: Whisper STT (10s), Polly TTS (5s), DynamoDB (3s), OpenAI GPT-4 (15s)
 - Implement exponential backoff for retries
 - After 3 failed retries, fail gracefully with user message
+- Log all timeouts to CloudWatch for monitoring
 
 **Rate Limiting:**
-- Implement rate limits: 10 requests/minute per farmer
-- For notification calls: 50 concurrent calls max
-- Queue excess requests, process when capacity available
+- Implement rate limits via AWS API Gateway: 10 requests/minute per farmer
+- For notification calls: 50 concurrent Twilio calls max
+- Queue excess requests in MongoDB, process when capacity available
+- Monitor rate limits in CloudWatch dashboards
 
 ## Testing Strategy
 
@@ -906,12 +979,12 @@ def test_property_1_speech_to_text_conversion(audio_input):
 - Test prompt templates for different scenarios
 
 **RAG Service:**
-- Test document chunking with various sizes
-- Test hybrid search (vector + keyword)
-- Test re-ranking logic
+- Test document chunking with various sizes using LangChain
+- Test DynamoDB vector search queries
+- Test OpenAI embedding generation
 - Test response length constraints (2-3 sentences)
 - Test no-results scenario with specific query
-- Test multilingual query handling
+- Test multilingual query handling with GPT-4
 
 **Query Handler:**
 - Test context window management (exactly 3, 5 turns)
@@ -932,58 +1005,64 @@ def test_property_1_speech_to_text_conversion(audio_input):
 - Test missing field handling
 
 **Knowledge Base Manager:**
-- Test PDF parsing with sample documents
-- Test chunk overlap calculation
+- Test PDF parsing with sample documents using PyPDF2
+- Test chunk overlap calculation with LangChain
 - Test metadata extraction
-- Test document versioning
+- Test document versioning in S3
+- Test DynamoDB batch writes for embeddings
 
 ### Integration Testing
 
 **End-to-End Flows:**
-1. Phone call → STT → RAG → TTS → Response delivery
-2. Mobile app query → Profile lookup → RAG → Response
-3. Document upload → Processing → Embedding → Retrieval
-4. Scheme addition → Farmer matching → Notification call
+1. Phone call via Twilio → Whisper STT → RAG → Polly TTS → Response delivery
+2. React app query → API Gateway → Profile lookup → RAG → Response
+3. Document upload → S3 storage → Processing → Embedding → DynamoDB storage
+4. Scheme addition → Farmer matching in MongoDB → Twilio notification call
 
 **External Service Mocking:**
-- Mock Google Cloud STT/TTS APIs for consistent testing
-- Mock LLM API with deterministic responses
-- Mock Exotel/Twilio for telephony testing
-- Use test vector database instance
+- Mock OpenAI Whisper and GPT-4 APIs for consistent testing
+- Mock Amazon Polly for TTS testing
+- Mock Twilio for telephony testing
+- Use local DynamoDB instance or test table for vector search testing
+- Mock S3 with LocalStack for document storage testing
 
 ### Performance Testing
 
 **Load Testing:**
-- Simulate 1,000 concurrent calls
-- Measure response times: STT (< 5s), RAG (< 3s), TTS (< 2s)
-- Test notification batch processing (100 calls)
+- Simulate 1,000 concurrent calls through API Gateway
+- Measure response times: Whisper STT (< 5s), RAG (< 3s), Polly TTS (< 2s)
+- Test notification batch processing (100 calls via Twilio)
+- Monitor CloudWatch metrics during load tests
 
 **Stress Testing:**
 - Test system behavior at 1,500 concurrent calls (150% capacity)
-- Test vector DB with 100,000 document chunks
-- Test conversation cache with 10,000 active sessions
+- Test DynamoDB with 100,000 document chunks
+- Test Redis conversation cache with 10,000 active sessions
+- Monitor AWS service limits and throttling
 
 ### Test Data
 
 **Synthetic Data Generation:**
-- Generate sample government scheme documents (PDFs)
-- Create test farmer profiles (1,000 profiles with varied locations/crops)
-- Record sample audio in Hindi and Tamil for STT testing
+- Generate sample government scheme documents (PDFs) and store in S3
+- Create test farmer profiles in MongoDB (1,000 profiles with varied locations/crops)
+- Record sample audio in Hindi and Tamil for Whisper STT testing
 - Create conversation transcripts for context testing
 
 **Test Knowledge Base:**
-- 50 sample scheme documents
+- 50 sample scheme documents in S3
 - 30 crop guidance documents
 - 20 loan information documents
 - Metadata: regions (Punjab, Tamil Nadu, Karnataka), dates, categories
+- All documents processed and stored in DynamoDB vector search
 
 ### Continuous Testing
 
 **CI/CD Integration:**
-- Run unit tests on every commit
-- Run property tests on pull requests
-- Run integration tests nightly
+- Run unit tests on every commit (pytest)
+- Run property tests on pull requests (hypothesis)
+- Run integration tests nightly against test AWS environment
 - Run performance tests weekly
+- Deploy to staging environment via AWS CodePipeline
 
 **Test Coverage Goals:**
 - Unit test coverage: > 80%
@@ -991,12 +1070,19 @@ def test_property_1_speech_to_text_conversion(audio_input):
 - Integration test coverage: All critical paths
 - Error handling coverage: All error scenarios
 
+**Monitoring:**
+- Track test results in CloudWatch dashboards
+- Alert on test failures via SNS
+- Monitor API Gateway metrics
+- Track OpenAI and Twilio API usage and costs
+
 ### Manual Testing
 
 **User Acceptance Testing:**
 - Test with sample farmers (5-10 users)
 - Test in Hindi and one regional language
-- Test on actual phones (not just simulators)
+- Test on actual phones via Twilio (not just simulators)
+- Test React web app on mobile devices
 - Gather feedback on voice clarity and response quality
 
 **Accessibility Testing:**
@@ -1004,14 +1090,18 @@ def test_property_1_speech_to_text_conversion(audio_input):
 - Test in noisy environments (farm settings)
 - Test with poor network conditions (2G/3G)
 - Test with different phone models and audio quality
+- Verify Polly voice quality across different devices
 
 ## Notes
 
 - The design prioritizes simplicity and reliability over advanced features for MVP
 - Voice-first approach ensures accessibility for farmers with limited literacy
-- RAG pipeline ensures responses are grounded in verified documents, reducing hallucination risk
-- Microservices architecture allows independent scaling of voice, RAG, and notification services
-- Conversation context (3-5 turns) balances coherence with simplicity
-- Single retry for notifications balances persistence with avoiding annoyance
+- RAG pipeline with OpenAI GPT-4 ensures responses are grounded in verified documents, reducing hallucination risk
+- FastAPI backend provides async request handling for better performance
+- AWS services (API Gateway, DynamoDB, S3, CloudWatch) provide scalability and monitoring
+- Conversation context (3-5 turns) stored in Redis balances coherence with simplicity
+- Single retry for Twilio notifications balances persistence with avoiding annoyance
 - Phone number as identifier eliminates authentication friction for farmers
+- JWT authentication for React app provides security without complexity
 - Error handling focuses on graceful degradation and clear user communication
+- CloudWatch provides centralized logging and monitoring across all services
