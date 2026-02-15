@@ -2,7 +2,7 @@
 
 ## Introduction
 
-The Agricultural Voice Assistant is a voice-first system that enables farmers to access government subsidies, crop guidance, and loan information through simple voice interactions. Farmers can call a number or use a lightweight mobile app to ask questions in their local language. The system processes the query using a RAG-based AI pipeline and responds with accurate voice output. Basic proactive alerts for new schemes and deadlines are also supported.
+KisanVaani is a voice-first agricultural assistant system that enables farmers to access government subsidies, crop guidance, and loan information through simple voice interactions. Farmers can call a number or use a lightweight mobile app to ask questions in their local language. The system processes the query using a RAG-based AI pipeline and responds with accurate voice output. Basic proactive alerts for new schemes and deadlines are also supported.
 
 ## Glossary
 
